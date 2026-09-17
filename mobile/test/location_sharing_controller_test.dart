@@ -5,7 +5,7 @@ import 'package:journeyng/core/errors/app_exception.dart';
 void main() {
   group('AppException', () {
     test('parses backend error envelope', () {
-      final exc = AppException(
+      const exc = AppException(
         code: 'CONSENT_REQUIRED',
         message: 'Location sharing consent has not been granted.',
         statusCode: 403,

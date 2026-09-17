@@ -12,7 +12,7 @@ final journeyRepositoryProvider = Provider<JourneyRepository>((ref) {
 });
 
 class JourneyRepository {
-  JourneyRepository(this _client, this _tokens);
+  JourneyRepository(this._client, this._tokens);
 
   final ApiClient _client;
   final TokenStorage _tokens;

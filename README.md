@@ -1,5 +1,10 @@
 # JourneyNG
 
+[![Backend CI](https://github.com/moscooltech/JourneyNG/actions/workflows/backend.yml/badge.svg)](https://github.com/moscooltech/JourneyNG/actions/workflows/backend.yml)
+[![Mobile CI](https://github.com/moscooltech/JourneyNG/actions/workflows/mobile.yml/badge.svg)](https://github.com/moscooltech/JourneyNG/actions/workflows/mobile.yml)
+[![Docs Check](https://github.com/moscooltech/JourneyNG/actions/workflows/deploy-docs.yml/badge.svg)](https://github.com/moscooltech/JourneyNG/actions/workflows/deploy-docs.yml)
+[![Release](https://github.com/moscooltech/JourneyNG/actions/workflows/release.yml/badge.svg)](https://github.com/moscooltech/JourneyNG/actions/workflows/release.yml)
+
 > **Share your journey, not just your location.**
 
 Consent-based journey sharing: a host creates a journey to a destination, invites visitors, and watches authorized participants travel there in real time — only while each participant explicitly consents.
@@ -45,7 +50,40 @@ This project is designed so **no build runs locally** — CI is the build system
 | `Mobile CI` | flutter analyze, flutter test, Android debug APK artifact |
 | `Docs Check` | verifies all required documentation and ADRs exist |
 
-Artifacts (APK, coverage) appear under each run's **Actions** tab.
+Artifacts (APK, coverage) appear under each run's **Actions** tab. Tagged releases (`v*`) additionally produce a signed-off debug APK attached to a GitHub Release.
+
+## Deployment
+
+### 1. Backend (Docker)
+
+```bash
+cd backend
+cp .env.example .env         # set JWT_SECRET, DB creds, MAPBOX token
+docker compose up -d --build
+alembic upgrade head         # inside the api container: docker compose exec api alembic upgrade head
+```
+
+For production, deploy the image built by CI to any container host (Fly.io, Render, AWS ECS, a VPS behind Caddy/Nginx). Required env vars are listed in [backend/.env.example](backend/.env.example); database schema is applied with `alembic upgrade head` on deploy (see [docs/deployment.md](docs/deployment.md)).
+
+### 2. Android app
+
+Grab the debug APK from the latest **Mobile CI** run, or build a release APK:
+
+```bash
+cd mobile
+flutter build apk --release \
+  --dart-define=MAPBOX_PUBLIC_TOKEN=pk.your_token
+```
+
+Install with `adb install build/app/outputs/flutter-apk/app-release.apk`. Point the app at your backend by editing `mobile/lib/app/config.dart` (`AppConfig.production.apiBaseUrl`) before building.
+
+### 3. Secrets / configuration
+
+| Setting | Where | Notes |
+|---|---|---|
+| `JWT_SECRET`, DB creds | backend env | never in git; rotate periodically |
+| `MAPBOX_PUBLIC_TOKEN` | `--dart-define` at APK build | public token only; server token stays server-side |
+| API base URL | `mobile/lib/app/config.dart` | rebuild APK after changing |
 
 ## Key invariants (enforced server-side)
 

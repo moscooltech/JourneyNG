@@ -115,8 +115,8 @@ class _HostLiveJourneyScreenState extends ConsumerState<HostLiveJourneyScreen> {
           if (_error != null)
             Card(
               color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
+              child: const Padding(
+                padding: EdgeInsets.all(12),
                 child: Text('Connection problem. Retrying…'),
               ),
             ),

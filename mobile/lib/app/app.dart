@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router.dart';
 import 'theme.dart';
@@ -10,7 +9,7 @@ class JourneyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Journey',
+      title: 'JourneyNG',
       theme: AppTheme.light(),
       routerConfig: router,
       debugShowCheckedModeBanner: false,

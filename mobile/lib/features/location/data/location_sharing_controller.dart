@@ -16,7 +16,7 @@ final locationSharingControllerProvider =
 });
 
 class LocationSharingController {
-  LocationSharingController(this _repo);
+  LocationSharingController(this._repo);
 
   static const _method = MethodChannel('journey/location_service');
   static const _events = EventChannel('journey/location_events');
@@ -27,14 +27,12 @@ class LocationSharingController {
   double? _lastLat;
   double? _lastLng;
   String? _activeJourneyId;
-  String? _viewerName;
 
   bool _sharing = false;
   bool get isSharing => _sharing;
 
   Future<bool> start({required String journeyId, required String viewerName}) async {
     _activeJourneyId = journeyId;
-    _viewerName = viewerName;
     try {
       final ok = await _method.invokeMethod<bool>('start', {'viewer_name': viewerName});
       if (ok != true) return false;

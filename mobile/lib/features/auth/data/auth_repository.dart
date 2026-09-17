@@ -12,7 +12,7 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 });
 
 class AuthRepository {
-  AuthRepository(this _client, this _tokens);
+  AuthRepository(this._client, this._tokens);
 
   final ApiClient _client;
   final TokenStorage _tokens;

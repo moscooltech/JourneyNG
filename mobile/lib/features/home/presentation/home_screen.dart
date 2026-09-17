@@ -32,7 +32,7 @@ class HomeScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(24),
         children: [
           Text(
-            "Share your journey, not just your location.",
+            'Share your journey, not just your location.',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 8),

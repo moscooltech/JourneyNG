@@ -57,7 +57,7 @@ class InvitationDetailsScreen extends StatelessWidget {
           const SizedBox(height: 24),
           FilledButton(
             onPressed: () => context.go('/join/$rawToken/guest'),
-            child: const Text("I understand — continue"),
+            child: const Text('I understand — continue'),
           ),
           const SizedBox(height: 8),
           TextButton(

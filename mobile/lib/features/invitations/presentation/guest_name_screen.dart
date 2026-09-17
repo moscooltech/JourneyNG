@@ -89,14 +89,14 @@ class _GuestReadyFlow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return const Column(
       children: [
-        const ListTile(
+        ListTile(
           leading: Icon(Icons.lock_outline),
           title: Text('Allow location access'),
           subtitle: Text('Required to share your journey. You approve this.'),
         ),
-        const ListTile(
+        ListTile(
           leading: Icon(Icons.play_circle_outline),
           title: Text('Start sharing'),
           subtitle: Text('A notification will stay visible while sharing.'),
