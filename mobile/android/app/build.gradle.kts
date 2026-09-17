@@ -1,7 +1,7 @@
 plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
+    id("com.android.application")
+    id("kotlin-android")
+    id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
@@ -30,9 +30,9 @@ android {
         release {
             // Release signing configured only when a keystore exists outside VCS
             // (spec §48: never store signing keys in repository).
-            signingConfig = signingConfigs.debug
-            minifyEnabled = true
-            shrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
         }
     }
 }
@@ -42,6 +42,6 @@ flutter {
 }
 
 dependencies {
-    implementation "com.google.android.gms:play-services-location:21.3.0"
-    implementation "androidx.core:core-ktx:1.13.1"
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("androidx.core:core-ktx:1.13.1")
 }
