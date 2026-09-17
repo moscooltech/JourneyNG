@@ -1,0 +1,36 @@
+name: Docs Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "ARCHITECTURE.md"
+
+jobs:
+  docs:
+    name: Verify required documentation exists
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required docs
+        run: |
+          missing=0
+          for f in README.md ARCHITECTURE.md \
+                   docs/api.md docs/websocket.md docs/database.md \
+                   docs/android-location.md docs/privacy.md docs/security.md \
+                   docs/deployment.md docs/testing.md \
+                   docs/decisions/0001-technology-stack.md \
+                   docs/decisions/0002-multi-participant-journey.md \
+                   docs/decisions/0003-consent-model.md \
+                   docs/decisions/0004-location-retention.md \
+                   docs/decisions/0005-map-provider.md \
+                   docs/decisions/0006-android-foreground-service.md; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing required doc: $f"
+              missing=1
+            fi
+          done
+          exit $missing

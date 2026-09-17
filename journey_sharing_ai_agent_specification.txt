@@ -1,0 +1,2789 @@
+JOURNEY SHARING APP — MASTER AI AGENT DEVELOPMENT SPECIFICATION
+Version: 1.0
+Status: Build Specification / Single Source of Truth
+Target: Production-quality V1, Android-first, Flutter client + FastAPI backend
+Primary market for initial validation: Nigeria, with architecture suitable for international expansion
+
+============================================================
+0. AGENT INSTRUCTIONS
+============================================================
+
+You are the principal software engineer and technical lead responsible for implementing this application end-to-end.
+
+Treat this document as the single source of truth unless a later explicit user instruction changes a requirement.
+
+Do not merely generate a prototype, mock screens, or disconnected demo code. Build a coherent, runnable, testable application with a real backend, database, real-time location transport, authentication, consent enforcement, and Android background location support.
+
+Core product principle:
+"Share your journey, not just your location."
+
+The application is a consent-based journey-sharing product. A host creates a journey to a destination and invites one or more visitors. Each visitor can join as a registered user or as a guest, explicitly consent to sharing their live location, start the journey, navigate to the destination, and stop sharing at any time. The host can monitor authorized active participants in real time.
+
+Privacy is a product requirement, not an afterthought.
+
+Do not implement:
+- covert tracking
+- persistent location tracking outside an active journey
+- silent consent
+- host-controlled tracking without participant consent
+- indefinite GPS history by default
+- sharing a participant's location with unauthorized users
+- raw location coordinates in normal analytics or audit logs
+- insecure invitation tokens stored in plaintext
+
+When a requirement is ambiguous, choose the safest implementation that preserves the core user experience, document the assumption, and keep the implementation replaceable/configurable.
+
+Before adding dependencies, check whether an existing dependency already solves the requirement. Keep the dependency set reasonably small.
+
+The application must support:
+- registered hosts
+- registered visitors
+- guest visitors
+- multiple visitors per journey
+- independent participant consent
+- independent participant arrival/leave states
+- live location
+- background Android location through a foreground service
+- navigation
+- ETA/distance
+- journey expiration
+- automatic sharing termination
+- host monitoring
+- privacy controls
+
+============================================================
+1. PRODUCT DEFINITION
+============================================================
+
+Primary use case:
+
+A person wants another person or group of people to come to a destination.
+
+Example:
+Babatunde creates a journey to his location.
+He sends an invitation link to John, Sarah, and Mike.
+John accepts and shares his location.
+Sarah accepts and shares her location.
+Mike declines.
+Babatunde sees John and Sarah moving toward the destination in real time.
+John arrives; John's sharing stops.
+Sarah continues.
+When Sarah arrives, her sharing stops.
+The journey ends when the host ends it, it expires, or no active participant remains.
+
+Positioning:
+- "Share your journey, not just your location."
+- "I'm coming to you."
+- "The simplest way to safely share a journey."
+
+Do not position the product as a permanent family surveillance/tracking application.
+
+============================================================
+2. V1 SCOPE
+============================================================
+
+V1 MUST INCLUDE:
+
+Authentication:
+- register
+- login
+- refresh token
+- logout
+- current-user profile
+- account deletion
+
+Journey:
+- create journey
+- choose destination
+- configure expiration
+- generate invitation
+- share invitation
+- view journey
+- start/activate journey
+- cancel/end journey
+- expiration
+- participant list
+- participant status
+
+Visitors:
+- registered visitor
+- guest visitor
+- accept invitation
+- decline invitation
+- join journey
+- independent consent
+- start journey
+- stop sharing
+- leave journey
+- manual arrival
+- automatic arrival detection
+
+Live location:
+- Android foreground location service
+- current location
+- accuracy
+- speed
+- heading
+- timestamps
+- live WebSocket updates
+- stale/offline state
+- reconnection
+- server-side authorization
+- rate limiting
+
+Navigation:
+- Mapbox Maps SDK
+- Mapbox Navigation SDK where supported by the chosen Flutter/native integration
+- route
+- ETA
+- distance
+- rerouting
+- destination marker
+- navigation camera
+- voice navigation if supported by selected SDK integration
+- graceful degradation if navigation provider is unavailable
+
+Host:
+- live map
+- multiple participant markers
+- participant list
+- ETA/distance
+- live/stale/offline state
+- participant arrival
+- participant left
+- participant stopped sharing
+- end journey
+
+Notifications:
+- invitation
+- accepted
+- arrived
+- stopped sharing
+- expiration warning
+- journey completed
+- removal where applicable
+
+Privacy:
+- active sharing indicator
+- visible-to information
+- purpose
+- expiration
+- stop sharing
+- privacy dashboard
+- account deletion
+- data retention rules
+
+V1 SHOULD NOT INCLUDE:
+- SOS
+- emergency services integration
+- family groups
+- complex social graph
+- permanent location history
+- business/technician mode
+- payments
+- ads
+- AI assistant
+- public journey discovery
+- public profiles
+- multiple hosts
+- arbitrary third-party viewers
+- complex analytics
+
+Design interfaces so these can be added later.
+
+============================================================
+3. TECHNOLOGY STACK
+============================================================
+
+Mobile:
+- Flutter
+- Dart
+- Riverpod for state management
+- GoRouter or equivalent typed/structured navigation
+- Mapbox Maps Flutter SDK
+- native Android Kotlin location service
+- platform channel/Pigeon/native bridge as appropriate
+- secure local storage for tokens
+- local lightweight persistence for transient journey state if required
+
+Backend:
+- Python
+- FastAPI
+- Pydantic
+- SQLAlchemy 2.x
+- Alembic
+- PostgreSQL
+- Redis/Valkey
+- WebSockets
+- JWT access tokens
+- rotating refresh tokens
+- Argon2id or bcrypt for password hashing
+- Firebase Cloud Messaging for push notifications
+
+Infrastructure:
+- Docker
+- Docker Compose for local development
+- Render-compatible deployment
+- GitHub Actions CI
+- environment-based configuration
+- OpenAPI documentation
+
+Maps:
+- Mapbox initially
+- routing provider abstraction MUST exist
+- do not hard-code routing logic throughout the application
+
+Observability:
+- structured JSON logs
+- request IDs
+- health endpoint
+- readiness endpoint
+- error reporting abstraction
+- metrics abstraction
+- no sensitive GPS in normal logs
+
+============================================================
+4. ARCHITECTURE
+============================================================
+
+High-level:
+
+Flutter Mobile
+    |
+    | HTTPS
+    | WebSocket
+    v
+FastAPI API
+    |
+    +---- PostgreSQL: durable state
+    |
+    +---- Redis/Valkey: live/temporary state
+    |
+    +---- FCM: push notifications
+    |
+    +---- Mapbox: map/routing/navigation
+
+Android location:
+
+Flutter UI
+    |
+    v
+Journey controller
+    |
+    v
+Native Kotlin LocationForegroundService
+    |
+    v
+Fused Location Provider
+    |
+    v
+Location validation/transport
+    |
+    v
+FastAPI
+    |
+    +---- Redis
+    |
+    +---- WebSocket broadcast
+    |
+    v
+Authorized host(s)
+
+Principle:
+The backend owns authorization and sharing relationships.
+The client never decides who is allowed to see location.
+
+============================================================
+5. MOBILE PROJECT STRUCTURE
+============================================================
+
+mobile/
+  lib/
+    app/
+      app.dart
+      router.dart
+      theme.dart
+      config.dart
+
+    core/
+      errors/
+      network/
+      storage/
+      permissions/
+      logging/
+      utils/
+      constants/
+
+    shared/
+      widgets/
+      models/
+      extensions/
+
+    features/
+      auth/
+        data/
+        domain/
+        presentation/
+
+      home/
+        data/
+        domain/
+        presentation/
+
+      journeys/
+        data/
+        domain/
+        presentation/
+
+      invitations/
+        data/
+        domain/
+        presentation/
+
+      participants/
+        data/
+        domain/
+        presentation/
+
+      location/
+        data/
+        domain/
+        presentation/
+
+      navigation/
+        data/
+        domain/
+        presentation/
+
+      privacy/
+        data/
+        domain/
+        presentation/
+
+      notifications/
+        data/
+        domain/
+        presentation/
+
+      profile/
+        data/
+        domain/
+        presentation/
+
+  android/
+    app/
+      src/main/kotlin/.../
+        location/
+          JourneyLocationService.kt
+          LocationServiceController.kt
+          LocationEventBridge.kt
+          LocationNotification.kt
+        permissions/
+        notifications/
+
+  test/
+  integration_test/
+
+Architecture rule:
+UI widgets must not directly call HTTP clients, SQL, or platform services.
+Use view models/notifiers -> use cases -> repositories/services.
+
+============================================================
+6. BACKEND PROJECT STRUCTURE
+============================================================
+
+backend/
+  app/
+    main.py
+
+    api/
+      v1/
+        auth.py
+        users.py
+        journeys.py
+        invitations.py
+        participants.py
+        consent.py
+        locations.py
+        privacy.py
+        notifications.py
+        health.py
+
+    domain/
+      auth/
+      users/
+      journeys/
+      participants/
+      invitations/
+      consent/
+      location/
+      notifications/
+      privacy/
+
+    services/
+      auth_service.py
+      journey_service.py
+      participant_service.py
+      invitation_service.py
+      consent_service.py
+      location_service.py
+      notification_service.py
+      privacy_service.py
+      routing_service.py
+
+    repositories/
+      user_repository.py
+      journey_repository.py
+      participant_repository.py
+      invitation_repository.py
+      consent_repository.py
+      location_repository.py
+      audit_repository.py
+
+    models/
+    schemas/
+    websocket/
+      manager.py
+      handlers.py
+      events.py
+
+    security/
+      jwt.py
+      password.py
+      authorization.py
+      rate_limit.py
+      tokens.py
+
+    infrastructure/
+      database.py
+      redis.py
+      fcm.py
+      mapbox.py
+
+    workers/
+      expiry_worker.py
+      cleanup_worker.py
+      notification_worker.py
+
+    config/
+      settings.py
+
+  migrations/
+  tests/
+    unit/
+    integration/
+    security/
+    websocket/
+
+  Dockerfile
+  pyproject.toml
+
+============================================================
+7. DATABASE SCHEMA
+============================================================
+
+Use UUID primary keys.
+
+All timestamps should be UTC and timezone-aware.
+
+7.1 users
+
+id UUID PK
+email VARCHAR NULL UNIQUE
+phone VARCHAR NULL UNIQUE
+password_hash TEXT NULL
+auth_provider VARCHAR NULL
+status VARCHAR NOT NULL
+created_at TIMESTAMP NOT NULL
+updated_at TIMESTAMP NOT NULL
+last_login_at TIMESTAMP NULL
+
+Rules:
+- At least one usable authentication method for registered users.
+- Normalize email/phone before uniqueness checks.
+- Never return password_hash.
+
+User statuses:
+ACTIVE
+SUSPENDED
+DELETED
+
+7.2 profiles
+
+user_id UUID PK FK users.id
+display_name VARCHAR NOT NULL
+photo_url TEXT NULL
+created_at
+updated_at
+
+7.3 refresh_tokens
+
+id UUID PK
+user_id UUID FK users.id
+token_hash TEXT NOT NULL UNIQUE
+expires_at TIMESTAMP NOT NULL
+revoked_at TIMESTAMP NULL
+created_at TIMESTAMP NOT NULL
+rotated_from UUID NULL
+
+Never store raw refresh tokens.
+
+7.4 guest_sessions
+
+id UUID PK
+journey_id UUID FK journeys.id
+display_name VARCHAR NOT NULL
+token_hash TEXT NOT NULL UNIQUE
+status VARCHAR NOT NULL
+created_at TIMESTAMP NOT NULL
+expires_at TIMESTAMP NOT NULL
+last_seen_at TIMESTAMP NULL
+
+Statuses:
+ACTIVE
+EXPIRED
+REVOKED
+COMPLETED
+
+Guest session must be scoped to one journey.
+
+7.5 journeys
+
+id UUID PK
+host_user_id UUID NOT NULL FK users.id
+destination_name TEXT NULL
+destination_lat DECIMAL NOT NULL
+destination_lng DECIMAL NOT NULL
+status VARCHAR NOT NULL
+started_at TIMESTAMP NULL
+expires_at TIMESTAMP NOT NULL
+completed_at TIMESTAMP NULL
+created_at TIMESTAMP NOT NULL
+updated_at TIMESTAMP NOT NULL
+
+Journey statuses:
+DRAFT
+INVITED
+ACTIVE
+COMPLETED
+CANCELLED
+EXPIRED
+
+Do not use ARRIVED as a journey-level state because individual participants can arrive at different times.
+
+7.6 journey_participants
+
+id UUID PK
+journey_id UUID NOT NULL FK journeys.id
+user_id UUID NULL FK users.id
+guest_session_id UUID NULL FK guest_sessions.id
+role VARCHAR NOT NULL
+status VARCHAR NOT NULL
+joined_at TIMESTAMP NULL
+left_at TIMESTAMP NULL
+created_at
+updated_at
+
+Roles:
+HOST
+VISITOR
+
+Statuses:
+INVITED
+ACCEPTED
+ACTIVE
+ARRIVED
+DECLINED
+LEFT
+REMOVED
+EXPIRED
+
+Constraints:
+- A participant must have exactly one identity source: user_id XOR guest_session_id.
+- A journey has exactly one HOST.
+- V1 supports one host and many visitors.
+- Registered user cannot be duplicated in the same journey.
+- Guest session cannot be duplicated.
+
+Host may be represented in journey_participants as HOST in addition to journeys.host_user_id. Keep these consistent transactionally. If implementation chooses not to create a host participant row, document and enforce the alternative consistently. Preferred implementation: create a host participant row so all participant operations use one model.
+
+7.7 journey_invitations
+
+id UUID PK
+journey_id UUID NOT NULL FK journeys.id
+token_hash TEXT NOT NULL UNIQUE
+created_by UUID NOT NULL FK users.id
+max_uses INTEGER NULL
+use_count INTEGER NOT NULL DEFAULT 0
+expires_at TIMESTAMP NOT NULL
+used_at TIMESTAMP NULL
+revoked_at TIMESTAMP NULL
+created_at TIMESTAMP NOT NULL
+
+Invitation token:
+- generated using cryptographically secure randomness
+- raw token only appears in invitation URL
+- database stores hash
+- short expiration
+- revocable
+- never log raw token
+
+For a group invitation, max_uses may be greater than 1.
+For an individual invitation, max_uses can be 1.
+
+7.8 location_consents
+
+id UUID PK
+journey_id UUID NOT NULL FK journeys.id
+participant_id UUID NOT NULL FK journey_participants.id
+viewer_user_id UUID NOT NULL FK users.id
+purpose VARCHAR NOT NULL
+scope VARCHAR NOT NULL
+status VARCHAR NOT NULL
+granted_at TIMESTAMP NOT NULL
+expires_at TIMESTAMP NOT NULL
+revoked_at TIMESTAMP NULL
+consent_version VARCHAR NOT NULL
+
+Purpose:
+TRAVEL_TO_DESTINATION
+
+Scope:
+LIVE_LOCATION
+
+Status:
+GRANTED
+REVOKED
+EXPIRED
+
+V1 viewer is the journey host.
+Do not allow arbitrary viewers yet.
+
+Consent must be checked on every location ingestion/authorization path.
+
+7.9 location_latest
+
+participant_id UUID PK FK journey_participants.id
+journey_id UUID NOT NULL FK journeys.id
+latitude DECIMAL NOT NULL
+longitude DECIMAL NOT NULL
+accuracy_m REAL NULL
+speed_mps REAL NULL
+heading REAL NULL
+altitude_m REAL NULL
+recorded_at TIMESTAMP NOT NULL
+received_at TIMESTAMP NOT NULL
+server_sequence BIGINT NOT NULL
+
+Only maintain this for currently active sharing or short retention.
+Redis should be the primary live-state store where practical.
+
+7.10 trusted_contacts
+
+id UUID PK
+user_id UUID FK users.id
+contact_user_id UUID FK users.id
+relationship_label VARCHAR NULL
+status VARCHAR NOT NULL
+created_at TIMESTAMP NOT NULL
+
+V1 may create the table but does not need a full UI.
+
+7.11 devices
+
+id UUID PK
+user_id UUID FK users.id
+platform VARCHAR
+push_token TEXT NULL
+app_version VARCHAR NULL
+last_seen_at TIMESTAMP NULL
+created_at
+updated_at
+
+Push tokens must be protected.
+
+7.12 notifications
+
+id UUID PK
+user_id UUID FK users.id
+type VARCHAR NOT NULL
+title TEXT
+body TEXT
+data JSONB NULL
+read_at TIMESTAMP NULL
+created_at TIMESTAMP NOT NULL
+
+Do not put raw GPS in notification payloads.
+
+7.13 audit_logs
+
+id UUID PK
+actor_user_id UUID NULL FK users.id
+action VARCHAR NOT NULL
+resource_type VARCHAR NOT NULL
+resource_id UUID NULL
+metadata JSONB NULL
+created_at TIMESTAMP NOT NULL
+
+Do not store raw coordinates in audit metadata.
+Do not log access tokens, invitation raw tokens, passwords, or sensitive secrets.
+
+7.14 privacy_settings
+
+user_id UUID PK FK users.id
+analytics_enabled BOOLEAN NOT NULL DEFAULT TRUE
+personalization_enabled BOOLEAN NOT NULL DEFAULT FALSE
+updated_at TIMESTAMP NOT NULL
+
+Analytics settings must never override legal/security logging requirements.
+
+============================================================
+8. DATABASE INDEXES AND CONSTRAINTS
+============================================================
+
+Required indexes:
+- users(email)
+- users(phone)
+- journeys(host_user_id, created_at DESC)
+- journeys(status, expires_at)
+- journey_participants(journey_id, status)
+- journey_participants(user_id)
+- journey_participants(guest_session_id)
+- journey_invitations(token_hash)
+- journey_invitations(journey_id, expires_at)
+- location_consents(participant_id, status)
+- location_consents(viewer_user_id, status)
+- location_latest(journey_id)
+- notifications(user_id, created_at DESC)
+- audit_logs(resource_type, resource_id, created_at DESC)
+
+Use database constraints where possible instead of relying only on application logic.
+
+============================================================
+9. JOURNEY STATE MACHINES
+============================================================
+
+Journey-level:
+
+DRAFT -> INVITED
+INVITED -> ACTIVE
+INVITED -> CANCELLED
+INVITED -> EXPIRED
+ACTIVE -> COMPLETED
+ACTIVE -> CANCELLED
+ACTIVE -> EXPIRED
+
+Do not allow:
+COMPLETED -> ACTIVE
+CANCELLED -> ACTIVE
+EXPIRED -> ACTIVE
+
+Participant-level:
+
+INVITED -> ACCEPTED
+INVITED -> DECLINED
+INVITED -> EXPIRED
+ACCEPTED -> ACTIVE
+ACCEPTED -> LEFT
+ACTIVE -> ARRIVED
+ACTIVE -> LEFT
+ACTIVE -> REMOVED
+ACTIVE -> EXPIRED
+ARRIVED -> no active sharing
+DECLINED -> terminal
+LEFT -> terminal
+REMOVED -> terminal
+EXPIRED -> terminal
+
+Consent:
+NOT_GRANTED -> GRANTED
+GRANTED -> REVOKED
+GRANTED -> EXPIRED
+
+No active consent means no location access.
+
+============================================================
+10. JOURNEY END RULES
+============================================================
+
+Journey ends when:
+1. host explicitly ends it, OR
+2. journey expires, OR
+3. there are no remaining active participants and product rules determine completion.
+
+Recommended V1 behavior:
+- If all participants are ARRIVED, DECLINED, LEFT, REMOVED, or EXPIRED, mark journey COMPLETED.
+- If one participant arrives while others are active, journey remains ACTIVE.
+- Host can end it at any time.
+- Expiration terminates all active location sharing.
+
+============================================================
+11. REST API
+============================================================
+
+Base URL:
+ /api/v1
+
+All protected endpoints require:
+Authorization: Bearer <access_token>
+
+Use consistent response envelopes where appropriate.
+
+Recommended error shape:
+
+{
+  "error": {
+    "code": "JOURNEY_NOT_ACTIVE",
+    "message": "The journey is not active.",
+    "request_id": "..."
+  }
+}
+
+Never expose internal exception traces to clients.
+
+11.1 Authentication
+
+POST /auth/register
+
+Request:
+{
+  "display_name": "John Doe",
+  "email": "john@example.com",
+  "phone": null,
+  "password": "..."
+}
+
+Response:
+{
+  "user": {...},
+  "access_token": "...",
+  "refresh_token": "..."
+}
+
+POST /auth/login
+
+Request:
+{
+  "identifier": "john@example.com",
+  "password": "..."
+}
+
+POST /auth/refresh
+
+Request:
+{
+  "refresh_token": "..."
+}
+
+Rotate refresh token.
+
+POST /auth/logout
+
+Revoke current refresh token/session.
+
+GET /me
+
+Return profile and account metadata.
+
+PATCH /me
+
+Update display name/photo and allowed profile fields.
+
+DELETE /me
+
+Account deletion workflow:
+- terminate active journeys
+- revoke active consent
+- invalidate invitations
+- invalidate sessions
+- remove location data
+- delete/anonymize account data according to retention policy
+- retain only legally/security-required records
+
+11.2 Journeys
+
+POST /journeys
+
+Request:
+{
+  "destination": {
+    "name": "Destination name",
+    "latitude": 6.000000,
+    "longitude": 3.000000
+  },
+  "expires_in_minutes": 120
+}
+
+Rules:
+- host must be registered
+- expiration must be within configured safe bounds
+- destination coordinates must be valid
+- create host participant
+- journey initially INVITED
+
+GET /journeys
+
+Return journeys where current user is host or participant.
+
+GET /journeys/{journey_id}
+
+Authorization:
+- host OR authorized participant
+- guest token can access only its journey
+
+Response includes:
+- journey
+- destination
+- current participant states
+- sharing states where requester is authorized
+- current live locations only when viewer has access
+
+POST /journeys/{journey_id}/start
+
+Host-only unless product explicitly changes.
+Starts the journey when valid.
+
+POST /journeys/{journey_id}/cancel
+
+Host-only.
+Cancels before/while active as allowed.
+
+POST /journeys/{journey_id}/complete
+
+Host-only.
+Ends journey and revokes all active sharing.
+
+POST /journeys/{journey_id}/extend
+
+Host-only.
+Must not silently extend participant consent.
+Notify active participants.
+If consent expiration is tied to journey expiration, participants must re-consent where required.
+
+11.3 Invitations
+
+POST /journeys/{journey_id}/invitations
+
+Host-only.
+
+Request:
+{
+  "max_uses": 10,
+  "expires_in_minutes": 120
+}
+
+Response:
+{
+  "invitation_id": "...",
+  "invite_url": "https://app.example/join/<raw-token>",
+  "expires_at": "..."
+}
+
+Raw URL is never stored server-side.
+
+POST /join/{token}/guest
+
+Request:
+{
+  "display_name": "John"
+}
+
+Creates guest session and participant.
+
+POST /join/{token}/accept
+
+Authenticated or guest session.
+Creates/updates participant as ACCEPTED.
+
+POST /join/{token}/decline
+
+Marks participant DECLINED.
+
+POST /journeys/{journey_id}/invitations/{invitation_id}/revoke
+
+Host-only.
+
+11.4 Consent
+
+POST /journeys/{journey_id}/consent
+
+Current participant identity is determined from auth/guest session.
+
+Request:
+{
+  "scope": "LIVE_LOCATION",
+  "purpose": "TRAVEL_TO_DESTINATION",
+  "duration": "UNTIL_ARRIVAL"
+}
+
+Response:
+{
+  "status": "GRANTED",
+  "granted_at": "...",
+  "expires_at": "...",
+  "viewer": {
+    "user_id": "...",
+    "display_name": "Babatunde"
+  }
+}
+
+POST /journeys/{journey_id}/consent/revoke
+
+Current participant revokes their own sharing.
+
+GET /journeys/{journey_id}/consent
+
+Return only consent records the requester is authorized to see.
+
+11.5 Participant actions
+
+POST /journeys/{journey_id}/participants/me/start
+
+Starts current participant's active journey.
+Checks:
+- accepted
+- consent granted
+- location permission expected on client
+- journey active/open
+- not expired
+
+POST /journeys/{journey_id}/participants/me/leave
+
+Current participant leaves.
+
+POST /journeys/{journey_id}/participants/me/arrive
+
+Current participant manually confirms arrival.
+
+POST /journeys/{journey_id}/participants/{participant_id}/remove
+
+Host-only.
+
+11.6 Location
+
+POST /journeys/{journey_id}/location
+
+Current authenticated participant only.
+
+Request:
+{
+  "latitude": 6.5244,
+  "longitude": 3.3792,
+  "accuracy_m": 8.2,
+  "speed_mps": 6.4,
+  "heading": 91.0,
+  "altitude_m": 45.2,
+  "recorded_at": "2026-09-17T17:45:23Z"
+}
+
+Never accept a user_id or participant_id from the client as the identity of the uploader.
+
+Backend derives uploader identity from the authenticated session.
+
+Validation:
+- participant belongs to journey
+- participant is ACTIVE
+- consent is GRANTED and not expired
+- journey is ACTIVE
+- coordinates valid
+- timestamp not absurdly old/future
+- rate limit
+- optional accuracy sanity check
+- reject impossible payloads
+
+Response:
+{
+  "accepted": true,
+  "server_received_at": "...",
+  "server_sequence": 12345
+}
+
+GET /journeys/{journey_id}/locations
+
+Host/authorized viewer only.
+Return current locations for authorized active participants.
+
+Do not expose historical GPS by default.
+
+11.7 Privacy
+
+GET /privacy/active-sharing
+
+Return current user's active sharing relationships.
+
+POST /privacy/stop-all-sharing
+
+Stop all currently active location sharing for the user.
+
+============================================================
+12. WEBSOCKET PROTOCOL
+============================================================
+
+Endpoint:
+
+/ws/journeys/{journey_id}
+
+Authenticate during connection using a secure access token mechanism appropriate for WebSocket clients. Avoid putting long-lived secrets in URLs where practical.
+
+On connection:
+1. authenticate
+2. resolve user/guest session
+3. verify journey membership
+4. verify viewer permissions
+5. subscribe to journey channel
+6. send initial authorized snapshot
+
+Initial snapshot:
+
+{
+  "type": "journey.snapshot",
+  "journey": {...},
+  "participants": [...],
+  "locations": [...]
+}
+
+Only include locations the connected identity is authorized to view.
+
+Location update:
+
+{
+  "type": "location.updated",
+  "journey_id": "...",
+  "participant_id": "...",
+  "location": {
+    "latitude": 6.5244,
+    "longitude": 3.3792,
+    "accuracy_m": 7.8,
+    "speed_mps": 5.2,
+    "heading": 90
+  },
+  "recorded_at": "...",
+  "received_at": "..."
+}
+
+Other events:
+journey.started
+journey.completed
+journey.cancelled
+journey.expired
+participant.joined
+participant.accepted
+participant.active
+participant.arrived
+participant.left
+participant.removed
+consent.granted
+consent.revoked
+consent.expired
+location.unavailable
+location.restored
+eta.updated
+route.deviation
+near_destination
+
+Server must enforce authorization before every broadcast.
+Do not broadcast a participant's location to everyone connected to the journey unless every recipient is authorized.
+
+Disconnect/reconnect:
+- client automatically reconnects with backoff
+- server sends fresh snapshot after reconnect
+- do not replay an unlimited historical location stream
+
+============================================================
+13. LIVE LOCATION DESIGN
+============================================================
+
+Location is journey-scoped.
+
+Do not maintain a permanent "user current location" feature in V1.
+
+Preferred flow:
+
+Android GPS
+ -> native foreground service
+ -> client-side validation
+ -> HTTPS location endpoint
+ -> FastAPI
+ -> Redis live state
+ -> WebSocket broadcast
+ -> authorized host
+
+Redis key examples:
+
+journey:{journey_id}:participant:{participant_id}:location
+journey:{journey_id}:participants
+journey:{journey_id}:presence
+journey:{journey_id}:connections
+
+Redis entries must have TTLs.
+
+Location freshness:
+- LIVE: recent update within configured threshold
+- STALE: no recent update but participant remains active
+- OFFLINE/UNAVAILABLE: connectivity/location failure beyond threshold
+
+The host UI must show "last updated" time.
+
+Never freeze a marker and make it look live.
+
+============================================================
+14. LOCATION UPDATE OPTIMIZATION
+============================================================
+
+Initial configurable strategy:
+- moving: approximately every 3–5 seconds
+- normal movement: approximately every 5–8 seconds
+- stationary/slow: approximately every 10–20 seconds
+
+These are starting values, not immutable requirements.
+
+Use movement-aware logic where possible.
+
+Do not request routing recalculation on every GPS update.
+
+Route recalculation triggers:
+- journey starts
+- meaningful route deviation
+- destination changes
+- provider requests reroute
+- major navigation state change
+
+Location upload rate must be configurable server-side.
+
+============================================================
+15. ANDROID LOCATION IMPLEMENTATION
+============================================================
+
+Implement a native Kotlin foreground service:
+
+JourneyLocationService.kt
+
+Responsibilities:
+- start/stop
+- subscribe to Fused Location Provider
+- select location parameters
+- emit updates
+- maintain foreground notification
+- react to connectivity changes
+- stop safely
+- expose state to Flutter
+- avoid duplicate services
+
+Android permission declarations must match the current Android SDK requirements.
+
+Expected permissions include:
+ACCESS_COARSE_LOCATION
+ACCESS_FINE_LOCATION
+FOREGROUND_SERVICE
+FOREGROUND_SERVICE_LOCATION
+
+Use foregroundServiceType="location" for the location service.
+
+Start the service from a visible user action:
+START JOURNEY.
+
+Do not start covertly from the backend.
+
+Use current Android documentation during implementation because foreground-service rules and Play policy can change.
+
+The service should continue when:
+- user presses Home
+- screen locks
+- user opens another application
+provided the OS, permissions, GPS and network allow it.
+
+The app must gracefully handle:
+- permission denied
+- approximate location
+- location services disabled
+- battery saver
+- OEM battery restrictions
+- no network
+- GPS unavailable
+- app process interruption
+- service stop
+- permission revoked
+- journey expiration
+
+Do not claim successful sharing if the service is not actually running.
+
+============================================================
+16. ANDROID NOTIFICATION
+============================================================
+
+While active location sharing is running, show a persistent notification.
+
+Example:
+
+"Journey active
+Your location is being shared with Babatunde."
+
+Actions:
+- View Journey
+- Stop Sharing
+
+The notification is a transparency feature.
+
+When sharing stops:
+- remove/stop the active location notification
+- notify backend
+- update UI
+
+============================================================
+17. OFFLINE/NETWORK FAILURE
+============================================================
+
+Scenario:
+GPS works but internet fails.
+
+Behavior:
+- continue obtaining location if service remains active
+- show "Connection unavailable"
+- do not pretend host is receiving live data
+- keep only minimal latest location state locally
+- reconnect with exponential backoff
+- after reconnect, send the latest valid location
+- server returns a fresh snapshot
+- do not upload a huge backlog by default
+
+Host:
+- marker becomes stale
+- show last updated time
+- show offline/unavailable state
+
+============================================================
+18. PERMISSION UX
+============================================================
+
+Never open the OS permission dialog without explaining why.
+
+Flow:
+
+Invitation
+ -> destination details
+ -> app consent explanation
+ -> user accepts
+ -> OS location permission
+ -> permission result
+ -> journey ready
+ -> user taps START JOURNEY
+ -> foreground service starts
+
+App explanation must clearly state:
+- who can see location
+- why
+- duration
+- how to stop sharing
+
+Precise location is recommended for navigation/ETA.
+
+If approximate location is granted:
+- allow continuation where safe
+- clearly indicate reduced accuracy
+- adapt navigation/ETA
+- never imply precise location is available
+
+Do not request background location permission unless a genuinely required feature needs it. V1 should use the foreground-service architecture for the active journey.
+
+============================================================
+19. MAPBOX INTEGRATION
+============================================================
+
+Create interfaces:
+
+MapProvider
+RoutingProvider
+NavigationProvider
+GeocodingProvider
+
+Implement initial Mapbox adapters.
+
+Do not spread Mapbox-specific classes through the entire domain layer.
+
+Visitor:
+- map
+- route
+- navigation
+- ETA
+- distance
+- destination
+- rerouting
+
+Host:
+- map
+- participant markers
+- destination
+- participant ETA/distance
+- no need for full turn-by-turn navigation
+
+Mapbox credentials:
+- follow current Mapbox documentation
+- use public/client token mechanisms appropriately
+- keep server secrets out of mobile builds
+- configure Android/iOS restrictions where available
+
+Before production, test routing/address quality in Lagos and other target Nigerian cities.
+
+Test:
+- Lagos Island
+- Ikeja
+- Alagbado
+- Agege
+- Yaba
+- Lekki
+- Surulere
+- Oshodi
+- Ikorodu
+- Abuja
+- Port Harcourt
+- Ibadan
+
+Record:
+- route correctness
+- ETA behavior
+- address search
+- road coverage
+- rerouting
+- map performance
+
+============================================================
+20. ETA
+============================================================
+
+Visitor navigation calculates route and ETA.
+
+Send periodic ETA state to backend only when meaningfully changed or at a reasonable interval.
+
+Example:
+{
+  "distance_remaining_m": 4200,
+  "duration_remaining_s": 720
+}
+
+Host receives:
+"ETA 12 min · 4.2 km"
+
+Do not call routing APIs every few seconds.
+
+If ETA is unavailable:
+- show "ETA unavailable"
+- continue live location
+- do not invent a value
+
+============================================================
+21. ARRIVAL DETECTION
+============================================================
+
+Use destination geofence/proximity detection.
+
+Do not mark arrival from one noisy GPS point.
+
+Recommended:
+1. location enters configured radius
+2. accuracy is considered
+3. location remains sufficiently near destination for a short stability period
+4. mark participant ARRIVED
+
+Allow manual:
+"I've Arrived"
+
+When participant arrives:
+- status -> ARRIVED
+- active consent -> REVOKED/EXPIRED
+- location service stops
+- host receives participant.arrived
+- host sees sharing ended
+- participant no longer broadcasts location
+
+Other active participants continue.
+
+============================================================
+22. HOST UX
+============================================================
+
+Home:
+- Create Journey
+- Active Journeys
+- Recent Journeys
+
+Create Journey:
+- search destination
+- select map point
+- destination name
+- expiration
+- create
+
+Invitation:
+- share link
+- copy link
+- QR code
+- participant count
+- invitation expiration/revocation
+
+Live Journey:
+- map
+- destination
+- participant markers
+- participant list
+- ETA
+- distance
+- status
+- last updated
+- end journey
+
+Participant card:
+John
+Active
+ETA 8 min
+2.7 km
+Updated 4 sec ago
+
+States:
+Active
+Arrived
+Pending
+Declined
+Left
+Removed
+Offline/Stale
+
+End journey confirmation:
+"This will stop location sharing for everyone currently sharing their location."
+
+============================================================
+23. VISITOR UX
+============================================================
+
+Invitation:
+- inviter identity
+- destination
+- purpose
+- duration
+- accept
+- decline
+
+Guest:
+- enter display name
+- no full registration required
+- receive scoped guest session
+
+Ready:
+- permission status
+- consent summary
+- START JOURNEY
+
+Active:
+- map
+- route
+- ETA
+- distance
+- sharing indicator
+- visible-to
+- stop sharing
+- I've Arrived
+
+Stop sharing:
+- immediate
+- notify host
+- service stops
+- participant state becomes LEFT or consent-revoked according to action semantics
+
+============================================================
+24. PRIVACY DASHBOARD
+============================================================
+
+Screen:
+PRIVACY
+
+Active location sharing
+
+John:
+Sharing with Babatunde
+Purpose: Journey
+Ends: Upon arrival
+
+Buttons:
+- Stop Sharing
+- Stop All Sharing
+
+Also display:
+- active permissions
+- journey sharing status
+- relevant expiration
+
+Do not expose unrelated users or locations.
+
+============================================================
+25. NOTIFICATION SYSTEM
+============================================================
+
+Use FCM for push.
+
+Push examples:
+- "Babatunde invited you to a journey."
+- "John accepted your journey."
+- "Sarah arrived."
+- "John stopped sharing their location."
+- "Journey expires in 15 minutes."
+- "Journey completed."
+
+Do not use push for high-frequency GPS.
+
+WebSocket handles live state.
+
+Notification payloads must contain minimal data and no raw GPS.
+
+============================================================
+26. AUTHENTICATION
+============================================================
+
+Access token:
+- short-lived
+- JWT
+- contains user identity and minimal claims
+
+Refresh token:
+- long-lived
+- opaque/random
+- stored hashed
+- rotated
+- revocable
+- device/session scoped
+
+Password:
+- Argon2id preferred
+- strong password validation
+- never log passwords
+
+Guest:
+- cryptographically random token
+- hashed server-side
+- scoped to journey
+- short expiration
+- revocable
+
+============================================================
+27. AUTHORIZATION
+============================================================
+
+Authorization is server-side.
+
+Rules:
+
+Host can:
+- view own journey
+- invite participants
+- revoke invitations
+- view authorized participant locations
+- remove participants
+- end journey
+
+Visitor can:
+- view own journey
+- accept/decline invitation
+- grant/revoke own location consent
+- start own journey
+- send own location
+- leave
+- mark arrived
+
+Visitor cannot:
+- send another user's location
+- view unauthorized participant location
+- change another participant's consent
+- extend their own authorization beyond server policy
+- access another journey by guessing an ID
+
+Backend derives identity from authenticated token/session.
+
+Never trust client-supplied user_id for authorization.
+
+============================================================
+28. SECURITY
+============================================================
+
+Implement:
+- HTTPS in production
+- secure password hashing
+- token rotation
+- invitation token hashing
+- input validation
+- authorization at every protected resource
+- rate limiting
+- CORS restrictions
+- secure headers
+- request IDs
+- database constraints
+- secret management
+- WebSocket authorization
+- dependency vulnerability checks
+- audit logs
+
+Rate-limit:
+- login
+- registration
+- OTP if added
+- invitation creation
+- invitation redemption
+- location updates
+- WebSocket connections
+- password operations
+
+Invitation abuse:
+- expiration
+- revocation
+- max uses
+- throttling
+
+============================================================
+29. PRIVACY AND DATA RETENTION
+============================================================
+
+Privacy-by-design/default.
+
+Principles:
+- purpose limitation
+- data minimization
+- explicit consent where applicable
+- transparency
+- revocation
+- storage limitation
+- access control
+- security
+- accountability
+
+Location:
+- no permanent detailed GPS history by default
+- Redis live state has TTL
+- location_latest is temporary/limited retention
+- delete detailed GPS after journey according to configured retention policy
+- retain only minimal journey metadata needed for product/legal/security reasons
+
+Audit:
+- record sensitive actions
+- no raw GPS
+- no credentials
+
+Analytics:
+- prefer aggregate events
+- no raw coordinates
+- no unnecessary personal identifiers
+
+Before production in Nigeria, conduct appropriate legal/privacy review under the Nigeria Data Protection Act 2023 and applicable NDPC guidance. Do not claim legal compliance merely because these technical controls exist.
+
+If children/minors are introduced later:
+- perform a separate child-data/privacy design and legal review
+- do not assume adult consent flows are sufficient
+
+============================================================
+30. ACCOUNT DELETION
+============================================================
+
+DELETE /me triggers an asynchronous/safe workflow.
+
+Steps:
+1. disable account
+2. terminate active journeys hosted by user
+3. revoke active participant consent
+4. stop active location sharing
+5. invalidate invitations
+6. revoke sessions
+7. remove/delete personal data according to retention rules
+8. delete location data
+9. preserve only legally required records
+10. finalize deletion/anonymization
+
+Notify affected active participants appropriately.
+
+============================================================
+31. PRIVACY/SECURITY EDGE CASES
+============================================================
+
+Handle:
+- host deletes account during active journey
+- visitor deletes account
+- host removes visitor
+- visitor revokes consent
+- invitation revoked while open
+- invitation expires
+- journey expires while visitor is offline
+- visitor's permission revoked in Android settings
+- location services disabled
+- user signs out during journey
+- app process killed
+- phone restarts
+- network lost
+- GPS lost
+- battery saver enabled
+- approximate location
+- duplicate invitation redemption
+- replayed location requests
+- replayed guest tokens
+- WebSocket reconnect
+- clock skew
+- stale GPS
+- impossible GPS jump
+- participant attempts access after removal
+
+Every edge case must fail safely.
+
+============================================================
+32. LOCATION DATA VALIDATION
+============================================================
+
+Server validation:
+- latitude between -90 and 90
+- longitude between -180 and 180
+- reasonable accuracy range
+- reject malformed timestamps
+- reject timestamps far in future
+- reject extremely old updates based on configurable policy
+- sequence/order handling
+- optionally detect impossible movement speeds
+- never discard legitimate GPS solely because it is imperfect
+
+Do not use validation to infer wrongdoing.
+
+============================================================
+33. RATE LIMITING
+============================================================
+
+Use Redis-backed rate limiting where appropriate.
+
+Examples of configurable limits:
+- login attempts per IP/identifier
+- invitation creation per host
+- join attempts per token/IP
+- location updates per participant
+- WebSocket connection attempts
+- API requests per user/IP
+
+Return HTTP 429 with retry guidance.
+
+Do not hardcode limits into many modules.
+
+============================================================
+34. REDIS DESIGN
+============================================================
+
+Redis is temporary state, not source of truth.
+
+Suggested keys:
+journey:{id}:status
+journey:{id}:participant:{participant_id}:location
+journey:{id}:participant:{participant_id}:presence
+journey:{id}:connections
+rate:{scope}:{key}
+
+Every temporary key must have TTL where appropriate.
+
+PostgreSQL remains the durable source of truth.
+
+If Redis is unavailable:
+- location ingestion should degrade safely
+- do not falsely claim live delivery
+- API health should expose degraded state
+- reconnect/recover automatically
+
+============================================================
+35. WORKERS / SCHEDULED JOBS
+============================================================
+
+Worker responsibilities:
+- expire journeys
+- expire consents
+- clean live location state
+- remove temporary guest sessions
+- retry notifications
+- cleanup stale connections
+- maintenance
+
+Expiry is a backend responsibility.
+Do not rely solely on mobile timers.
+
+============================================================
+36. OBSERVABILITY
+============================================================
+
+Every request should have request_id.
+
+Structured logs:
+- request_id
+- route
+- status
+- duration
+- user_id where safe
+- resource_id
+- error code
+
+Do not log:
+- passwords
+- access tokens
+- refresh tokens
+- raw invitation tokens
+- raw GPS coordinates
+- full private notification payloads
+
+Metrics:
+- API latency
+- error rate
+- WebSocket connections
+- active journeys
+- active participants
+- location update acceptance/rejection rate
+- stale location rate
+- push delivery outcome
+- Redis latency
+- database latency
+
+Health:
+GET /health
+GET /ready
+
+============================================================
+37. TESTING REQUIREMENTS
+============================================================
+
+Unit tests:
+- state transitions
+- consent
+- authorization
+- invitation token validation
+- expiration
+- location validation
+- arrival detection
+- rate limits
+
+Integration:
+- PostgreSQL
+- Redis
+- FastAPI
+- WebSocket
+- FCM abstraction
+
+API:
+- registration
+- login
+- refresh
+- journey creation
+- invitation
+- guest join
+- accept/decline
+- consent
+- start
+- location
+- arrive
+- leave
+- remove
+- complete
+- expiration
+
+Security:
+- unauthorized journey access
+- IDOR attempts
+- token replay
+- expired invitation
+- revoked invitation
+- revoked consent
+- participant removal
+- host-only actions
+- WebSocket unauthorized subscription
+- rate limiting
+
+============================================================
+38. ANDROID DEVICE TEST MATRIX
+============================================================
+
+Test supported/current Android versions, especially:
+Android 10
+Android 11
+Android 12
+Android 13
+Android 14
+Android 15
+Android 16
+
+Test:
+- permission granted
+- approximate permission
+- precise permission
+- permission denied
+- permission revoked
+- GPS disabled
+- screen on
+- screen off
+- app background
+- WhatsApp open
+- Maps open
+- battery saver
+- poor network
+- no network
+- network recovery
+- app process interrupted
+- device restart
+- low battery
+- OEM battery optimization
+
+Test on several real Android manufacturers, not only emulator.
+
+============================================================
+39. MOBILE UI SCREENS
+============================================================
+
+Required screens:
+
+1. Splash
+2. Welcome
+3. Register
+4. Login
+5. Home
+6. Create Journey
+7. Destination Search/Picker
+8. Journey Created / Invite
+9. Invitation Details
+10. Guest Name
+11. Consent Explanation
+12. Permission Guidance
+13. Journey Ready
+14. Visitor Active Journey
+15. Host Live Journey
+16. Participant Details
+17. Journey Details
+18. Arrival Confirmation
+19. Journey Completed
+20. Privacy Dashboard
+21. Profile
+22. Settings
+23. Delete Account
+24. Error/Offline states
+
+Every screen needs:
+- loading state
+- error state
+- empty state where relevant
+- accessibility labels
+- appropriate back navigation
+- safe handling of app lifecycle
+
+============================================================
+40. UX COPY PRINCIPLES
+============================================================
+
+Use plain language.
+
+Good:
+"Your location is being shared with Babatunde."
+
+Bad:
+"Tracking enabled."
+
+Good:
+"Sharing ends when you arrive."
+
+Bad:
+"Persistent surveillance session."
+
+Good:
+"Connection unavailable. Your location hasn't updated since 5:42 PM."
+
+Bad:
+"Tracking failed."
+
+Never use language that hides active sharing.
+
+============================================================
+41. GROUP JOURNEY RULES
+============================================================
+
+V1:
+- one host
+- many visitors
+- initial recommended active participant cap: 10–20
+- configurable server-side
+
+Each participant independently:
+- accepts
+- declines
+- grants consent
+- starts
+- stops sharing
+- arrives
+- leaves
+
+Example:
+John ACTIVE
+Sarah ACTIVE
+Mike DECLINED
+David ARRIVED
+Peter PENDING
+
+Host sees only states/data authorized by backend.
+
+One participant arriving must not stop other participants.
+
+============================================================
+42. GUEST FLOW
+============================================================
+
+Guest receives:
+https://app.example/join/<token>
+
+Open link:
+- app if installed
+- web/deep-link entry if supported
+
+Guest:
+1. sees inviter
+2. sees destination
+3. enters display name
+4. accepts
+5. reads consent
+6. grants OS permission
+7. taps START JOURNEY
+8. location service begins
+
+Guest session:
+- expires with journey
+- cannot access other journeys
+- cannot become a full registered account automatically without explicit registration
+- can optionally upgrade to an account later
+
+============================================================
+43. DEEP LINKS
+============================================================
+
+Implement a deep-link structure:
+https://<domain>/join/<token>
+
+Handle:
+- app installed
+- app not installed
+- expired token
+- revoked token
+- invalid token
+- already-used single-use token
+- group token with remaining uses
+
+Never expose token in analytics logs.
+
+============================================================
+44. NOTIFICATION DEEP LINKS
+============================================================
+
+Notification actions should open:
+- invitation details
+- active journey
+- participant details
+- privacy dashboard
+
+Do not put sensitive location coordinates into deep-link URLs.
+
+============================================================
+45. API DOCUMENTATION
+============================================================
+
+FastAPI OpenAPI must document:
+- authentication
+- every endpoint
+- request schemas
+- response schemas
+- error responses
+- authorization requirements
+
+Create:
+docs/api.md
+docs/websocket.md
+docs/database.md
+docs/android-location.md
+docs/privacy.md
+docs/security.md
+docs/deployment.md
+
+============================================================
+46. DOCKER DEVELOPMENT
+============================================================
+
+Provide docker-compose for local backend dependencies:
+
+services:
+- api
+- postgres
+- redis
+
+Optional:
+- pgadmin only for development if useful
+
+Local development:
+docker compose up
+
+Backend must support migrations:
+alembic upgrade head
+
+Provide seed/test data only in development.
+
+Never seed production with fake users.
+
+============================================================
+47. ENVIRONMENT CONFIGURATION
+============================================================
+
+Backend example:
+
+APP_ENV=development
+DATABASE_URL=
+REDIS_URL=
+
+JWT_SECRET=
+JWT_ACCESS_EXPIRES_MINUTES=
+JWT_REFRESH_EXPIRES_DAYS=
+
+MAPBOX_SERVER_TOKEN=
+
+FCM_PROJECT_ID=
+FCM_CLIENT_EMAIL=
+FCM_PRIVATE_KEY=
+
+CORS_ORIGINS=
+SENTRY_DSN=
+
+Do not commit .env files containing secrets.
+
+Provide:
+.env.example
+
+Mobile:
+Use environment-specific configuration.
+Assume mobile-shipped values can be extracted.
+Never embed backend master secrets.
+
+============================================================
+48. CI/CD
+============================================================
+
+GitHub Actions should run on pull requests and main branch.
+
+Backend:
+- format
+- lint
+- type checking
+- unit tests
+- integration tests
+- dependency/security checks
+- build Docker image
+
+Mobile:
+- format
+- analyze
+- unit tests
+- widget tests
+- Android debug build
+- release build only where signing configuration exists
+
+Never store signing keys in repository.
+
+============================================================
+49. RELEASE CHANNELS
+============================================================
+
+Support:
+development
+staging
+production
+
+Each environment has separate:
+- database
+- Redis
+- API URL
+- Mapbox configuration
+- FCM configuration
+- secrets
+
+Do not let staging accidentally connect to production.
+
+============================================================
+50. PERFORMANCE REQUIREMENTS
+============================================================
+
+Targets should be configurable and validated by testing.
+
+Desired:
+- normal API p95 low enough for responsive UX
+- WebSocket location propagation normally within a few seconds
+- no duplicate location updates
+- no runaway memory growth
+- map remains responsive with 10–20 participant markers
+- battery use acceptable for active journey
+- database does not receive permanent high-frequency GPS history by default
+
+Do not optimize prematurely, but measure real behavior.
+
+============================================================
+51. DATA FLOW EXAMPLE
+============================================================
+
+John receives invitation.
+
+1. Host creates journey.
+2. Server creates journey and host participant.
+3. Server creates invitation token.
+4. Host shares link.
+5. John opens link.
+6. John enters name.
+7. Guest session created.
+8. Participant created.
+9. John accepts.
+10. John reads consent explanation.
+11. Android location permission requested.
+12. John taps START JOURNEY.
+13. Client calls participant start endpoint.
+14. Backend verifies journey and consent.
+15. Native location foreground service starts.
+16. GPS update obtained.
+17. Client sends location.
+18. Backend authenticates John.
+19. Backend resolves John participant.
+20. Backend verifies ACTIVE + GRANTED consent.
+21. Backend stores latest state.
+22. WebSocket broadcasts authorized event.
+23. Host sees John's updated marker.
+24. John arrives.
+25. Participant becomes ARRIVED.
+26. Consent revoked/expired.
+27. Location service stops.
+28. Host receives participant.arrived.
+29. No further location accepted.
+
+============================================================
+52. GROUP EXAMPLE
+============================================================
+
+Host:
+Babatunde
+
+Visitors:
+John
+Sarah
+Michael
+David
+Peter
+
+States:
+John ACTIVE
+Sarah ACTIVE
+Michael DECLINED
+David ARRIVED
+Peter INVITED
+
+Host map shows:
+John location
+Sarah location
+
+David:
+"Arrived — sharing ended."
+
+Michael:
+"Declined."
+
+Peter:
+"Pending."
+
+John arrives.
+Only John stops.
+
+Sarah continues.
+
+This behavior must be covered by automated tests.
+
+============================================================
+53. FAILURE EXAMPLE
+============================================================
+
+John is ACTIVE.
+His internet disappears.
+
+Client:
+- GPS may continue
+- service remains active
+- UI says connection unavailable
+
+Host:
+- sees last location
+- sees "last updated 2m ago"
+- marker is stale
+
+Internet returns:
+- WebSocket reconnects
+- latest location sent
+- host receives fresh snapshot/update
+- stale indicator clears
+
+============================================================
+54. FORCE-STOP / OS INTERRUPTION
+============================================================
+
+If Android kills/stops the service:
+- client should detect when possible
+- backend should eventually mark participant location stale
+- host must not see fake live movement
+- participant should be informed when app resumes
+- if the OS prevents restart, do not attempt prohibited background starts
+- provide clear recovery instructions
+
+Do not design a mechanism to bypass Android's security restrictions.
+
+============================================================
+55. MAP PROVIDER ABSTRACTION
+============================================================
+
+Domain-level interfaces:
+
+RoutingProvider:
+calculateRoute(origin, destination, options)
+estimateTravelTime(...)
+reroute(...)
+reverseGeocode(...)
+geocode(...)
+
+NavigationProvider:
+startNavigation(route)
+stopNavigation()
+currentNavigationState()
+
+MapProvider:
+render
+markers
+camera
+route line
+
+Initial implementation:
+Mapbox.
+
+Potential future implementations:
+OSRM-based
+Google
+HERE
+other provider
+
+Do not let a Mapbox SDK object leak into domain/business models.
+
+============================================================
+56. LEGAL/PRIVACY DOCUMENTATION
+============================================================
+
+Before public production release, create:
+- Privacy Policy
+- Terms of Service
+- Location Sharing Explanation
+- Consent language
+- Data Retention Policy
+- Account Deletion Policy
+
+For initial Nigerian operation, have the privacy/legal design reviewed against the Nigeria Data Protection Act 2023 and applicable NDPC guidance.
+
+Clearly document:
+- what location data is collected
+- why
+- who sees it
+- how long it is retained
+- how consent is revoked
+- how users exercise applicable rights
+- third-party processors/services
+- international/cross-border processing where relevant
+
+============================================================
+57. SECURITY REVIEW CHECKLIST
+============================================================
+
+Before production verify:
+
+[ ] No IDOR
+[ ] No unauthorized location access
+[ ] No raw invitation tokens in logs
+[ ] No raw GPS in logs
+[ ] Consent checked server-side
+[ ] Revoked consent blocks updates
+[ ] Expired journey blocks updates
+[ ] Removed participant blocks updates
+[ ] Guest token cannot access other journey
+[ ] Refresh tokens hashed
+[ ] Passwords hashed
+[ ] Rate limiting enabled
+[ ] WebSocket authorization enabled
+[ ] HTTPS enforced
+[ ] CORS restricted
+[ ] Secrets outside repository
+[ ] Database backups configured
+[ ] Dependency vulnerabilities reviewed
+[ ] Account deletion tested
+[ ] Data retention cleanup tested
+
+============================================================
+58. IMPLEMENTATION ORDER
+============================================================
+
+Do not attempt all features simultaneously.
+
+Phase 1:
+Repository
+Docker
+FastAPI
+PostgreSQL
+Redis
+Alembic
+CI
+
+Phase 2:
+Users
+Authentication
+Profiles
+Refresh tokens
+
+Phase 3:
+Journeys
+Participants
+State machines
+Invitations
+Guest sessions
+
+Phase 4:
+Consent
+Privacy
+Authorization
+
+Phase 5:
+Flutter shell
+Authentication screens
+Home
+Journey creation
+Invitation flow
+
+Phase 6:
+Android native location service
+Permissions
+Foreground notification
+Location upload
+
+Phase 7:
+Redis live state
+WebSocket
+Host live map
+Participant markers
+
+Phase 8:
+Mapbox maps
+Routing
+Navigation
+ETA
+Arrival detection
+
+Phase 9:
+FCM notifications
+Expiration worker
+Cleanup worker
+
+Phase 10:
+Security hardening
+Privacy dashboard
+Account deletion
+Audit logging
+
+Phase 11:
+Integration testing
+Android device testing
+Load testing
+Failure testing
+
+Phase 12:
+Staging deployment
+Production deployment
+Release documentation
+
+============================================================
+59. DEFINITION OF DONE
+============================================================
+
+V1 is not complete merely because the screens compile.
+
+A feature is done when:
+- backend implementation exists
+- mobile implementation exists
+- database migration exists
+- authorization exists
+- error states exist
+- tests exist
+- documentation exists
+- logging is safe
+- privacy behavior is correct
+- relevant Android lifecycle behavior is tested
+
+The complete V1 must allow this real-world test:
+
+Host:
+1. registers
+2. creates journey
+3. chooses destination
+4. creates invitation
+5. sends link
+
+Visitor:
+1. opens link
+2. enters name
+3. accepts
+4. grants location permission
+5. starts journey
+6. locks screen
+7. opens another app
+8. continues travelling
+
+Host:
+1. sees visitor live
+2. sees last update
+3. sees ETA
+4. sees route/location
+5. receives arrival event
+
+Visitor:
+1. arrives
+2. sharing automatically ends
+3. persistent notification disappears
+4. host sees "Arrived — sharing ended"
+
+Repeat with 3–5 simultaneous visitors.
+
+Then test:
+- one declines
+- one leaves
+- one loses network
+- one revokes consent
+- journey expires
+- host ends journey
+- guest token expires
+- account is deleted
+
+All must behave safely and predictably.
+
+============================================================
+60. AI AGENT DEVELOPMENT RULES
+============================================================
+
+When coding:
+1. Inspect existing repository before creating files.
+2. Preserve working functionality.
+3. Make small coherent changes.
+4. Run tests after each major change.
+5. Run formatting and static analysis.
+6. Update migrations whenever schema changes.
+7. Update OpenAPI models whenever API contracts change.
+8. Keep API and Flutter models synchronized.
+9. Never silently change a public contract.
+10. Document breaking changes.
+11. Do not hard-code secrets.
+12. Do not bypass authentication for convenience.
+13. Do not disable TLS/security checks in production code.
+14. Do not create fake location updates in production code.
+15. Use mocks only in tests.
+16. Do not use real user GPS data in tests.
+17. Keep location retention minimal.
+18. Treat consent as authorization state.
+19. Treat the server as source of truth for permissions.
+20. Prefer safe failure over optimistic assumptions.
+
+When an implementation decision affects:
+- privacy
+- security
+- data retention
+- location permissions
+- authentication
+- authorization
+- billing
+- third-party terms
+
+document the decision in /docs/decisions/ using an ADR.
+
+============================================================
+61. REQUIRED DOCUMENTATION FILES
+============================================================
+
+Create:
+
+README.md
+ARCHITECTURE.md
+
+docs/
+  api.md
+  websocket.md
+  database.md
+  android-location.md
+  maps-navigation.md
+  privacy.md
+  security.md
+  deployment.md
+  testing.md
+
+docs/decisions/
+  0001-technology-stack.md
+  0002-multi-participant-journey.md
+  0003-consent-model.md
+  0004-location-retention.md
+  0005-map-provider.md
+  0006-android-foreground-service.md
+
+============================================================
+62. IMPORTANT CURRENT PLATFORM NOTES
+============================================================
+
+Android location/foreground-service requirements change over time. At implementation time, verify current official Android documentation for:
+- location permissions
+- foreground service type
+- background start restrictions
+- Android version behavior changes
+- Google Play location policy
+
+Mapbox SDK versions, pricing, terms, and Flutter/native integration can change. Verify current official Mapbox documentation before pinning versions or making production billing assumptions.
+
+Do not copy old blog-post instructions when official current documentation differs.
+
+============================================================
+63. FUTURE EXTENSION POINTS
+============================================================
+
+Architecture should permit later:
+- trusted contacts
+- Safe Journey
+- SOS
+- family groups
+- multiple hosts
+- business technician mode
+- customer appointment tracking
+- low-data mode
+- journey history
+- optional consented location history
+- richer messaging
+- voice/calling
+- additional map providers
+- web host dashboard
+
+Do not implement these now unless explicitly requested.
+
+============================================================
+64. FINAL PRODUCT PRINCIPLE
+============================================================
+
+The application is not a surveillance system.
+
+It is a temporary, explicit, purpose-bound journey-sharing system.
+
+Every technical decision should preserve these rules:
+
+1. The participant knows sharing is active.
+2. The participant knows who can see the location.
+3. The participant knows why it is being shared.
+4. The participant knows when sharing ends.
+5. The participant can stop sharing.
+6. The backend enforces these rules.
+7. The application does not retain more location data than necessary.
+8. The host sees current authorized journey information, not unrestricted personal location history.
+9. When the journey ends, location sharing ends.
+10. When consent ends, location access ends.
+
+END OF SPECIFICATION

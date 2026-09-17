@@ -1,0 +1,63 @@
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+!gradle-wrapper.properties
+google-services.json
+service-account*.json
+keystore/
+*.jks
+*.keystore
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# --- Flutter / Dart ---
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+.dart_tool/
+*.iml
+android/.gradle/
+android/local.properties
+android/key.properties
+ios/Pods/
+
+# --- Android ---
+*.apk
+*.aab
+.gradle/
+local.properties
+
+# --- Node (tooling) ---
+node_modules/
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# --- Docker / logs ---
+*.log
+docker-compose.override.yml
